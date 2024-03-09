@@ -25,6 +25,10 @@ langchain-openai = "^0.0.5"
 requests = "^2.31.0"
 simsimd = "^3.7.7"
 lark = "^1.1.9"
+watchdog = "^4.0.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.3.0"
 
 [build-system]
 requires = ["poetry-core"]

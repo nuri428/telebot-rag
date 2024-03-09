@@ -1,14 +1,29 @@
 #!/usr/bin/env python
 import os
+
 from dotenv import load_dotenv
 from icecream import ic
+
+
+import logging
+
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from telegram import ForceReply, Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
+from rag_module.chain import chain
+
 load_dotenv()
 
 # pylint: disable=unused-argument
 # This program is dedicated to the public domain under the CC0 license.
 token=os.getenv('token')
-
-
 """
 Simple Bot to reply to Telegram messages.
 
@@ -22,11 +37,6 @@ Press Ctrl-C on the command line or send a signal to the process to stop the
 bot.
 """
 
-import logging
-
-from telegram import ForceReply, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
-from rag_module.chain import chain
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -62,16 +72,19 @@ async def query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ic(update.message.text.strip())
     if update.message.text.strip() == "":
         await update.message.reply_text("Please provide a query")
-        
-    response = chain.invoke(
-        {
-            "question": update.message.text.replace("/query", "").strip(),
-            "chat_history": [],
-        }
-    )
+    try :
+        response = chain.invoke(
+            {
+                "question": update.message.text.replace("/query", "").strip(),
+                "chat_history": [],
+            }
+        )
 
-    # print(response)  # noqa: T201
-    await update.message.reply_text(response)
+        # print(response)  # noqa: T201
+        await update.message.reply_text(response)
+    except Exception as e:
+        ic(e)
+        await update.message.reply_text("Something went wrong")
 
 
 def main() -> None:

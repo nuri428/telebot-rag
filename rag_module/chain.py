@@ -1,23 +1,29 @@
-import os 
+import os
 from operator import itemgetter
 from typing import List, Optional, Tuple
+
 from dotenv import load_dotenv
+# from elasticsearch import Elasticsearch
+from icecream import ic
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import EmbeddingsFilter
+# from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain.schema import BaseMessage, format_document
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.retrievers.document_compressors import EmbeddingsFilter
-from langchain.retrievers import ContextualCompressionRetriever
 from langchain_community.vectorstores.elasticsearch import ElasticsearchStore
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_openai import ChatOpenAI
+
 from .prompts import CONDENSE_QUESTION_PROMPT, DOCUMENT_PROMPT, LLM_CONTEXT_PROMPT
-from elasticsearch import Elasticsearch
-from icecream import ic
-load_dotenv()
+
+# import logging
+
 from langchain.chains.query_constructor.base import AttributeInfo
-from langchain.retrievers.self_query.base import SelfQueryRetriever
-import logging
+# from langchain.retrievers.self_query.base import SelfQueryRetriever
+
+load_dotenv()
 ELASTIC_CLOUD_ID = os.getenv("ELASTIC_CLOUD_ID")
 ELASTIC_USERNAME = os.getenv("ELASTIC_USERNAME", "elastic")
 ELASTIC_PASSWORD = os.getenv("ELASTIC_PASSWORD")
@@ -67,10 +73,10 @@ metadata_field_info = [
     ),
 ]
 document_content_description = "An article published by an internet media or newspaper"
-llm = ChatOpenAI(model="gpt-4", temperature=0)
 
+llm = ChatOpenAI(model_name="gpt-4", temperature=0)
 embeddings=HuggingFaceEmbeddings(
-        model_name="jhgan/ko-sroberta-multitask", model_kwargs={"device": "cpu"}
+        model_name="BAAI/bge-m3", model_kwargs={"device": "cpu"}
     )
 
 # Setup connecting to Elasticsearch
@@ -98,32 +104,21 @@ embeddings_filter = EmbeddingsFilter(
     similarity_threshold=0.5
 )
 
-retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 50})
-
-self_query_retriever = SelfQueryRetriever.from_llm(
-    llm,
-    vectorstore,
-    document_content_description,
-    metadata_field_info,
-    verbose=True,
-)
+retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 10})
 
 compression_retriever = ContextualCompressionRetriever(
 	# embeddings_filter 설정
     base_compressor=embeddings_filter, 
     # retriever 를 호출하여 검색쿼리와 유사한 텍스트를 찾음
-    base_retriever=vectorstore.as_retriever()
+    base_retriever=retriever
+    # base_retriever=vectorstore.as_retriever()
 )
 
-# Set up LLM to user
-llm = ChatOpenAI(model_name="gpt-3.5-turbo-0125", temperature=0)
 
 def _combine_documents(
     docs, document_prompt=DOCUMENT_PROMPT, document_separator="\n\n"
 ):
-    # ic(docs)
-    doc_strings = [format_document(doc, document_prompt) for doc in docs]
-    # ic(doc_strings)
+    doc_strings = [format_document(doc, document_prompt) for doc in docs]    
     return document_separator.join(doc_strings)
 
 
@@ -153,21 +148,8 @@ _inputs = RunnableParallel(
 )
 
 _context = {
-    "context": itemgetter("standalone_question") | self_query_retriever | _combine_documents,
+    "context": itemgetter("standalone_question") | compression_retriever | _combine_documents,
     "question": lambda x: x["standalone_question"],
 }
-
-# _context = {
-#     "context": itemgetter("standalone_question") | compression_retriever | _combine_documents,
-#     "question": lambda x: x["standalone_question"],
-# }
-
-
-# _context = {
-#     "context": itemgetter("standalone_question") | retriever | _combine_documents,
-#     "question": lambda x: x["standalone_question"],
-# }
-
 chain = _inputs | _context | LLM_CONTEXT_PROMPT | llm | StrOutputParser()
-
 chain = chain.with_types(input_type=ChainInput)
